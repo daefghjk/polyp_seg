@@ -1,3 +1,4 @@
+import argparse
 import csv
 import os
 
@@ -9,31 +10,31 @@ from tqdm import tqdm
 
 from attention_unet import AttentionUNet
 from dataset import KvasirDataset, calculate_metrics, set_seed, split_dataset
+from experiment_utils import experiment_name, format_learning_rate, positive_integer, positive_learning_rate
 
 
 SEED = 42
 IMG_SIZE = 256
-BATCH_SIZE = 8
 EPOCHS = 100
-LR = 1e-4
 PATIENCE = 10
 
 CODE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(CODE_DIR)
 DATA_ROOT = os.path.join(PROJECT_ROOT, "dataset", "Kvasir-SEG")
-WEIGHT_SAVE_DIR = os.path.join(PROJECT_ROOT, "weights")
-RESULT_SAVE_DIR = os.path.join(PROJECT_ROOT, "results")
-WEIGHT_NAME = "best_attention_unet_bce.pth"
-LOG_NAME = "train_log_attention_bce.csv"
-CURVE_NAME = "train_curve_attention_bce.png"
+EXPERIMENT_ROOT = os.path.join(PROJECT_ROOT, "experiments")
+MODEL_NAME = "attention_unet_bce"
 
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(description="训练 Attention U-Net 模型。")
+    parser.add_argument("--batch_size", required=True, type=positive_integer, help="训练批大小。")
+    parser.add_argument("--lr", required=True, type=positive_learning_rate, help="Adam 学习率。")
+    return parser.parse_args()
 
 
 def train_one_epoch(model, loader, criterion, optimizer, device):
     model.train()
     total_loss = 0.0
-
     for images, masks in tqdm(loader, desc="训练中", leave=False):
         images, masks = images.to(device), masks.to(device)
         optimizer.zero_grad()
@@ -42,7 +43,6 @@ def train_one_epoch(model, loader, criterion, optimizer, device):
         loss.backward()
         optimizer.step()
         total_loss += loss.item() * images.size(0)
-
     return total_loss / len(loader.dataset)
 
 
@@ -74,70 +74,7 @@ def validate(model, loader, criterion, device):
     )
 
 
-if __name__ == "__main__":
-    set_seed(SEED)
-    os.makedirs(WEIGHT_SAVE_DIR, exist_ok=True)
-    os.makedirs(RESULT_SAVE_DIR, exist_ok=True)
-
-    train_list, validation_list, _ = split_dataset(DATA_ROOT)
-    train_dataset = KvasirDataset(DATA_ROOT, train_list, IMG_SIZE)
-    validation_dataset = KvasirDataset(DATA_ROOT, validation_list, IMG_SIZE)
-    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=0)
-    validation_loader = DataLoader(
-        validation_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=0
-    )
-
-    model = AttentionUNet(n_channels=3, n_classes=1).to(DEVICE)
-    criterion = nn.BCEWithLogitsLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=LR)
-
-    best_dice = 0.0
-    early_stop_counter = 0
-    log_history = []
-
-    print(f"使用设备: {DEVICE}")
-    print("开始 C 组实验：Attention U-Net + BCE 损失")
-
-    for epoch in range(1, EPOCHS + 1):
-        train_loss = train_one_epoch(model, train_loader, criterion, optimizer, DEVICE)
-        validation_metrics = validate(model, validation_loader, criterion, DEVICE)
-        validation_loss, validation_dice, validation_iou, validation_precision, validation_recall = validation_metrics
-
-        log_history.append(
-            [
-                epoch,
-                train_loss,
-                validation_loss,
-                validation_dice,
-                validation_iou,
-                validation_precision,
-                validation_recall,
-            ]
-        )
-        print(
-            f"轮次 {epoch:03d}/{EPOCHS} | 训练损失: {train_loss:.4f} | "
-            f"验证损失: {validation_loss:.4f} | Dice: {validation_dice:.4f} | "
-            f"IoU: {validation_iou:.4f}"
-        )
-
-        if validation_dice > best_dice:
-            best_dice = validation_dice
-            torch.save(model.state_dict(), os.path.join(WEIGHT_SAVE_DIR, WEIGHT_NAME))
-            early_stop_counter = 0
-            print(f"最优模型已更新，Dice: {best_dice:.4f}")
-        else:
-            early_stop_counter += 1
-            if early_stop_counter >= PATIENCE:
-                print(f"早停触发，连续 {PATIENCE} 轮未提升")
-                break
-
-    with open(os.path.join(RESULT_SAVE_DIR, LOG_NAME), "w", newline="", encoding="utf-8") as file:
-        writer = csv.writer(file)
-        writer.writerow(
-            ["epoch", "train_loss", "val_loss", "val_dice", "val_iou", "val_precision", "val_recall"]
-        )
-        writer.writerows(log_history)
-
+def save_training_curve(log_history, curve_path):
     epochs = [row[0] for row in log_history]
     train_losses = [row[1] for row in log_history]
     validation_losses = [row[2] for row in log_history]
@@ -160,10 +97,76 @@ if __name__ == "__main__":
     axes[1].grid(alpha=0.3)
 
     figure.tight_layout()
-    curve_path = os.path.join(RESULT_SAVE_DIR, CURVE_NAME)
     figure.savefig(curve_path, dpi=200)
     plt.close(figure)
 
-    print(f"训练日志已保存至: {os.path.join(RESULT_SAVE_DIR, LOG_NAME)}")
+
+def main():
+    arguments = parse_arguments()
+    tag = experiment_name(MODEL_NAME, arguments.batch_size, arguments.lr)
+    experiment_dir = os.path.join(EXPERIMENT_ROOT, tag)
+    os.makedirs(experiment_dir, exist_ok=True)
+
+    set_seed(SEED)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    train_list, validation_list, _ = split_dataset(
+        DATA_ROOT, save_path=os.path.join(experiment_dir, "data_split.txt")
+    )
+    train_dataset = KvasirDataset(DATA_ROOT, train_list, IMG_SIZE)
+    validation_dataset = KvasirDataset(DATA_ROOT, validation_list, IMG_SIZE)
+    train_loader = DataLoader(train_dataset, batch_size=arguments.batch_size, shuffle=True, num_workers=0)
+    validation_loader = DataLoader(
+        validation_dataset, batch_size=arguments.batch_size, shuffle=False, num_workers=0
+    )
+
+    model = AttentionUNet(n_channels=3, n_classes=1).to(device)
+    criterion = nn.BCEWithLogitsLoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=float(arguments.lr))
+    weight_path = os.path.join(experiment_dir, f"best_{tag}.pth")
+    log_path = os.path.join(experiment_dir, "train_log_attention_bce.csv")
+    curve_path = os.path.join(experiment_dir, "train_curve_attention_bce.png")
+
+    best_dice = 0.0
+    early_stop_counter = 0
+    log_history = []
+
+    print(f"使用设备: {device}")
+    print(f"开始 C 组实验：Attention U-Net + BCE 损失 | batch_size={arguments.batch_size}, lr={format_learning_rate(arguments.lr)}")
+    print(f"实验目录: {experiment_dir}")
+
+    for epoch in range(1, EPOCHS + 1):
+        train_loss = train_one_epoch(model, train_loader, criterion, optimizer, device)
+        validation_metrics = validate(model, validation_loader, criterion, device)
+        validation_loss, validation_dice, validation_iou, validation_precision, validation_recall = validation_metrics
+        log_history.append(
+            [epoch, train_loss, validation_loss, validation_dice, validation_iou, validation_precision, validation_recall]
+        )
+        print(
+            f"轮次 {epoch:03d}/{EPOCHS} | 训练损失: {train_loss:.4f} | "
+            f"验证损失: {validation_loss:.4f} | Dice: {validation_dice:.4f} | IoU: {validation_iou:.4f}"
+        )
+
+        if validation_dice > best_dice:
+            best_dice = validation_dice
+            torch.save(model.state_dict(), weight_path)
+            early_stop_counter = 0
+            print(f"最优模型已更新，Dice: {best_dice:.4f}")
+        else:
+            early_stop_counter += 1
+            if early_stop_counter >= PATIENCE:
+                print(f"早停触发，连续 {PATIENCE} 轮未提升")
+                break
+
+    with open(log_path, "w", newline="", encoding="utf-8") as file:
+        writer = csv.writer(file)
+        writer.writerow(["epoch", "train_loss", "val_loss", "val_dice", "val_iou", "val_precision", "val_recall"])
+        writer.writerows(log_history)
+    save_training_curve(log_history, curve_path)
+
+    print(f"训练日志已保存至: {log_path}")
     print(f"训练曲线已保存至: {curve_path}")
     print(f"最佳验证集 Dice: {best_dice:.4f}")
+
+
+if __name__ == "__main__":
+    main()
