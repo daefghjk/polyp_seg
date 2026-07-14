@@ -1,0 +1,8 @@
+experiment_group: B
+model: U-Net + BCE + Dice
+batch_size: 8
+learning_rate: 0.001
+loss_weights: BCE:Dice = 1:1
+epochs: 100
+patience: 10
+best_val_dice: 0.756365
