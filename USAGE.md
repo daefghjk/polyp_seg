@@ -49,10 +49,10 @@ dataset/Kvasir-SEG/masks
 
 ```powershell
 # A 组：U-Net + BCE
-.\.venv\Scripts\python.exe codes\train.py --batch_size 8 --lr 1e-4
+python codes\train.py --batch_size 8 --lr 1e-4
 
 # C 组：Attention U-Net + BCE
-.\.venv\Scripts\python.exe codes\train_attention.py --batch_size 8 --lr 1e-4
+python codes\train_attention.py --batch_size 8 --lr 1e-4
 ```
 
 `batch_size` 必须是正整数，`lr` 必须是有限正数。学习率会被规范为小数形式，因此 `1e-4` 和 `0.0001` 指向同一组实验标识。
@@ -85,12 +85,12 @@ experiments/attention_unet_bce_bs8_lr0.0001/
 
 ```powershell
 # 基线模型预测
-.\.venv\Scripts\python.exe codes\predict.py `
+python codes\predict.py `
   --weight_path experiments\unet_baseline_bs8_lr0.0001\best_unet_baseline_bs8_lr0.0001.pth `
   --output_dir experiments\unet_baseline_bs8_lr0.0001
 
 # Attention U-Net 预测
-.\.venv\Scripts\python.exe codes\predict_attention.py `
+python codes\predict_attention.py `
   --weight_path experiments\attention_unet_bce_bs8_lr0.0001\best_attention_unet_bce_bs8_lr0.0001.pth `
   --output_dir experiments\attention_unet_bce_bs8_lr0.0001
 ```
@@ -102,7 +102,7 @@ experiments/attention_unet_bce_bs8_lr0.0001/
 `plot_training_log.py` 读取任意符合当前训练日志字段的 CSV，并保存曲线图片。两个参数均为必填：
 
 ```powershell
-.\.venv\Scripts\python.exe codes\plot_training_log.py `
+python codes\plot_training_log.py `
   --csv_path experiments\attention_unet_bce_bs8_lr0.0001\train_log_attention_bce.csv `
   --output_path experiments\attention_unet_bce_bs8_lr0.0001\train_curve_from_csv.png
 ```
