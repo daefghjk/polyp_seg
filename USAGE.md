@@ -1,145 +1,183 @@
-# 工程结构与使用说明
+# 工程使用说明
 
-## 1. 项目用途
+本项目使用 Kvasir-SEG 数据集完成肠镜息肉二分类分割。所有脚本从项目根目录运行，输入尺寸固定为 `256 x 256`，随机种子为 `42`，数据按 `8:1:1` 划分训练、验证和测试集。每次测试均为 100 张测试图像。
 
-本项目用于肠镜息肉图像二分类分割，包含两组模型：
-
-- U-Net 基线模型：`U-Net + BCE Loss`。
-- Attention U-Net：在四条跳跃连接中加入 Attention Gate，训练损失仍为 `BCEWithLogitsLoss`。
-
-训练和预测均使用 Kvasir-SEG 数据集，输入图像尺寸固定为 `256 x 256`。数据集通过随机种子 `42` 按 `8:1:1` 划分训练集、验证集和测试集。
-
-## 2. 目录结构
+## 1. 工程结构
 
 ```text
 polyp_seg/
-├── codes/
-│   ├── unet_baseline.py        # U-Net 基线模型定义
-│   ├── attention_unet.py       # Attention U-Net 与 Attention Gate 定义
-│   ├── dataset.py              # 数据集、固定划分与评价指标
-│   ├── experiment_utils.py     # 参数校验与实验目录命名
-│   ├── train.py                # U-Net 基线训练入口
-│   ├── train_attention.py      # Attention U-Net 训练入口
-│   ├── predict.py              # U-Net 基线预测与测试入口
-│   ├── predict_attention.py    # Attention U-Net 预测与测试入口
-│   └── plot_training_log.py    # 由训练日志 CSV 绘制曲线
-├── dataset/
-│   └── Kvasir-SEG/
-│       ├── images/             # 原始图像
-│       └── masks/              # 二值掩码
-├── experiments/                # 每个模型和超参数组合的完整实验产物
-├── README.md                   # 项目讨论提纲
-└── USAGE.md                    # 本使用说明
+├── codes/                         # 模型、训练、测试和结果汇总脚本
+│   ├── unet_baseline.py            # U-Net
+│   ├── attention_unet.py           # Attention U-Net 和 Attention Gate
+│   ├── losses.py                   # BCE + Dice 混合损失
+│   ├── dataset.py                  # 数据集、固定划分和评价指标
+│   ├── experiment_utils.py         # 参数校验和实验目录命名
+│   ├── train.py                    # A 组训练：U-Net + BCE
+│   ├── train_hybrid.py             # B 组训练：U-Net + BCE + Dice
+│   ├── train_attention.py          # C 组训练：Attention U-Net + BCE
+│   ├── train_attention_hybrid.py   # D 组训练：Attention U-Net + BCE + Dice
+│   ├── predict*.py                 # 四组模型的测试与预测可视化
+│   ├── run_param_experiments.py    # B 组调参和 D 组训练的批量入口
+│   ├── build_tuning_tables.py      # 自动生成调参表格和曲线
+│   ├── plot_training_log.py        # 单个训练日志曲线
+│   └── plot_experiment_comparison.py # 多个实验训练曲线对比
+├── dataset/Kvasir-SEG/
+│   ├── images/
+│   └── masks/
+├── experiments/                    # 各实验的权重、日志、指标和预测图
+├── README.md                       # 项目讨论提纲
+├── USAGE.md                        # 本使用说明
+└── result.md                       # 已完成实验的测试集结果汇总
 ```
 
-## 3. 环境准备
+## 2. 环境与数据
 
-项目依赖 PyTorch、TorchVision、NumPy、Pillow、Matplotlib 和 tqdm。
-
-数据集目录必须为：
-
-```text
-dataset/Kvasir-SEG/images
-dataset/Kvasir-SEG/masks
-```
-
-## 4. 训练
-
-两个训练脚本都必须提供 `--batch_size` 和 `--lr`。缺少任一参数会立即报错。
+推荐使用项目虚拟环境：
 
 ```powershell
-# A 组：U-Net + BCE
-.\.venv\Scripts\python.exe codes\train.py --batch_size 8 --lr 1e-4
-
-# C 组：Attention U-Net + BCE
-.\.venv\Scripts\python.exe codes\train_attention.py --batch_size 8 --lr 1e-4
+.\.venv\Scripts\python.exe --version
 ```
 
-`batch_size` 必须是正整数，`lr` 必须是有限正数。学习率会被规范为小数形式，因此 `1e-4` 和 `0.0001` 指向同一组实验标识。
+工程未提供锁定版本的 `requirements.txt`。若需新建环境，安装运行所需依赖：
 
-训练会创建以下格式的目录：
+```powershell
+python -m pip install torch torchvision numpy pillow matplotlib tqdm
+```
+
+数据集目录必须严格为：
 
 ```text
-experiments/<模型名>_bs<batch_size>_lr<learning_rate>/
+dataset/Kvasir-SEG/images/
+dataset/Kvasir-SEG/masks/
+```
+
+图像与掩码文件名应一一对应。下文以 `.\.venv\Scripts\python.exe` 代替 Python 解释器；若未使用虚拟环境，请替换为实际的 `python` 命令。
+
+## 3. 实验分组
+
+| 组别 | 模型 | 损失函数 | 训练脚本 | 测试脚本 |
+|---|---|---|---|---|
+| A | U-Net | BCE | `train.py` | `predict.py` |
+| B | U-Net | BCE + Dice | `train_hybrid.py` | `predict_hybrid.py` |
+| C | Attention U-Net | BCE | `train_attention.py` | `predict_attention.py` |
+| D | Attention U-Net | BCE + Dice | `train_attention_hybrid.py` | `predict_attention_hybrid.py` |
+
+所有训练入口都要求 `--batch_size` 和 `--lr`。两者必须为正数；`1e-4` 与 `0.0001` 代表同一学习率。混合损失脚本额外接受 `--loss_weights`，格式为 `BCE:Dice`，默认 `1:1`。
+
+## 4. 单次训练
+
+```powershell
+# A: U-Net + BCE
+.\.venv\Scripts\python.exe codes\train.py --batch_size 8 --lr 1e-4
+
+# B: U-Net + BCE + Dice（默认 BCE:Dice=1:1）
+.\.venv\Scripts\python.exe codes\train_hybrid.py --batch_size 8 --lr 1e-4
+
+# B: 调整混合损失权重
+.\.venv\Scripts\python.exe codes\train_hybrid.py --batch_size 8 --lr 1e-4 --loss_weights 2:1
+
+# C: Attention U-Net + BCE
+.\.venv\Scripts\python.exe codes\train_attention.py --batch_size 8 --lr 1e-4
+
+# D: Attention U-Net + BCE + Dice
+.\.venv\Scripts\python.exe codes\train_attention_hybrid.py --batch_size 8 --lr 1e-4 --loss_weights 1:1
+```
+
+`train_hybrid.py` 还支持 `--epochs`（默认 100）、`--patience`（默认 10）和 `--quick`。`--quick` 等价于 `--epochs 25 --patience 5`，用于快速排查流程，不能与完整训练结果直接作公平比较。
+
+训练产物写入以下目录，其中学习率和损失权重会写入目录名：
+
+```text
+experiments/<模型名>_bs<批大小>_lr<学习率>[_bce<BCE权重>_dice<Dice权重>]/
 ```
 
 例如：
 
 ```text
 experiments/unet_baseline_bs8_lr0.0001/
-experiments/attention_unet_bce_bs8_lr0.0001/
+experiments/unet_hybrid_bs8_lr0.0001_bce2_dice1/
+experiments/attention_unet_hybrid_bs8_lr0.0001_bce1_dice1/
 ```
 
-每个实验目录均包含：
+目录中包含最优权重 `best_*.pth`、训练日志 `train_log_*.csv`、训练曲线 `train_curve_*.png`、数据划分 `data_split.txt`；混合损失实验另有 `experiment_config.txt`。以相同配置再次训练会覆盖同名产物。
 
-- 带模型名和超参数的最优权重文件，例如 `best_unet_baseline_bs8_lr0.0001.pth`。
-- `data_split.txt`：本实验使用的数据划分。
-- `train_log_*.csv`：每轮训练和验证指标。
-- `train_curve_*.png`：训练损失和验证 Dice 曲线。
+## 5. 测试与预测图
 
-重新训练相同模型和相同超参数时，会覆盖该实验目录中同名的权重、日志和曲线。
-
-## 5. 预测与测试
-
-预测脚本必须传入要加载的权重路径和结果输出目录。建议将输出目录设置为权重所在实验目录，使模型和对应结果保持在同一位置。
+测试命令须提供权重路径与输出目录。建议将输出目录设为权重所在实验目录，使权重、指标和预测图保持对应。
 
 ```powershell
-# 基线模型预测
+# A 组
 .\.venv\Scripts\python.exe codes\predict.py `
   --weight_path experiments\unet_baseline_bs8_lr0.0001\best_unet_baseline_bs8_lr0.0001.pth `
   --output_dir experiments\unet_baseline_bs8_lr0.0001
 
-# Attention U-Net 预测
+# B 组
+.\.venv\Scripts\python.exe codes\predict_hybrid.py `
+  --weight_path experiments\unet_hybrid_bs8_lr0.0001_bce1_dice1\best_unet_hybrid_bs8_lr0.0001_bce1_dice1.pth `
+  --output_dir experiments\unet_hybrid_bs8_lr0.0001_bce1_dice1
+
+# C 组
 .\.venv\Scripts\python.exe codes\predict_attention.py `
   --weight_path experiments\attention_unet_bce_bs8_lr0.0001\best_attention_unet_bce_bs8_lr0.0001.pth `
   --output_dir experiments\attention_unet_bce_bs8_lr0.0001
+
+# D 组
+.\.venv\Scripts\python.exe codes\predict_attention_hybrid.py `
+  --weight_path experiments\attention_unet_hybrid_bs8_lr0.0001_bce1_dice1\best_attention_unet_hybrid_bs8_lr0.0001_bce1_dice1.pth `
+  --output_dir experiments\attention_unet_hybrid_bs8_lr0.0001_bce1_dice1
 ```
 
-预测会在输出目录写入测试集 Dice、IoU、Precision、Recall，以及原图、真实掩码和预测掩码的对比图。预测时也会写入 `data_split.txt`，以确保测试集与训练使用同一固定划分。
+对应输出包括 `test_metrics_*.txt`、`data_split.txt` 和预测示例图目录。测试指标为 Dice、IoU、Precision 与 Recall；完整已测结果见 [result.md](result.md)。
 
-## 6. 由 CSV 重绘训练曲线
+## 6. 批量参数实验与汇总
 
-`plot_training_log.py` 读取任意符合当前训练日志字段的 CSV，并保存曲线图片。两个参数均为必填：
+下列批量脚本依次运行 B 组学习率扫描（`1e-3`、`1e-4`、`3e-4`）、B 组损失权重扫描（`1:1`、`1:2`、`2:1`），并默认训练和测试 D 组的 `lr=1e-4, BCE:Dice=1:1` 方案。
+
+```powershell
+# 使用当前虚拟环境；默认 batch_size=8
+.\.venv\Scripts\python.exe codes\run_param_experiments.py
+
+# 指定批大小和解释器
+.\.venv\Scripts\python.exe codes\run_param_experiments.py `
+  --batch_size 8 `
+  --python .\.venv\Scripts\python.exe
+
+# 只运行 B 组两类扫描，不训练 D 组
+.\.venv\Scripts\python.exe codes\run_param_experiments.py --batch_size 8 --skip_final
+
+# 从 experiments/ 重新汇总表格和曲线
+.\.venv\Scripts\python.exe codes\build_tuning_tables.py
+
+# 指定汇总输出目录
+.\.venv\Scripts\python.exe codes\build_tuning_tables.py --output_dir results\custom_summary
+```
+
+默认汇总目录为 `results/division4/`，包含学习率、权重和 A/B/C/D 消融的 Markdown/CSV 表格，以及对应曲线图。批量脚本会重新训练同名实验，因此运行前应确认是否需要保留已有权重和结果。
+
+## 7. 训练曲线绘制
+
+单个日志重绘：
 
 ```powershell
 .\.venv\Scripts\python.exe codes\plot_training_log.py `
-  --csv_path experiments\attention_unet_bce_bs8_lr0.0001\train_log_attention_bce.csv `
-  --output_path experiments\attention_unet_bce_bs8_lr0.0001\train_curve_from_csv.png
+  --csv_path experiments\unet_hybrid_bs8_lr0.0001_bce1_dice1\train_log_hybrid.csv `
+  --output_path experiments\unet_hybrid_bs8_lr0.0001_bce1_dice1\train_curve_from_csv.png
 ```
 
-CSV 必须包含以下字段：`epoch`、`train_loss`、`val_loss`、`val_dice`。
-
-## 7. 当前已训练实验
-
-当前已有以下实验结果：
-
-- `experiments/unet_baseline_bs8_lr0.0001/`
-- `experiments/attention_unet_bce_bs8_lr0.0001/`
-
-两个目录均已包含对应模型权重、训练日志、训练曲线、测试指标和预测示例图。
-
-## 8. 分工四：混合损失与参数实验
-
-成员 4 负责混合损失与调参实验，详见 [`docs/DIVISION4.md`](docs/DIVISION4.md)。
-
-新增脚本：
-
-- `codes/losses.py`：BCE + Dice 混合损失
-- `codes/train_hybrid.py`：B 组训练（U-Net + BCE + Dice）
-- `codes/train_attention_hybrid.py`：D 组训练（Attention U-Net + BCE + Dice）
-- `codes/run_param_experiments.py`：批量参数实验
-- `codes/build_tuning_tables.py`：生成调参表格与对比曲线
-
-快速开始：
+日志 CSV 必须包含 `epoch`、`train_loss`、`val_loss` 和 `val_dice` 四列。多个实验的训练/验证损失和验证 Dice 可用下列命令对比：
 
 ```powershell
-pip install -r requirements.txt
-
-# 完整训练（约 8-10 小时，CPU）
-python codes/train_hybrid.py --batch_size 8 --lr 1e-4 --loss_weights 1:1
-
-# 快速训练（约 2-4 小时，CPU；A 组最佳 Dice 出现在第 20 轮）
-python codes/train_hybrid.py --batch_size 16 --lr 1e-4 --loss_weights 1:1 --quick
-
-python codes/build_tuning_tables.py
+.\.venv\Scripts\python.exe codes\plot_experiment_comparison.py `
+  --csv_paths `
+    experiments\unet_baseline_bs8_lr0.0001\train_log_baseline.csv `
+    experiments\unet_hybrid_bs8_lr0.0001_bce1_dice1\train_log_hybrid.csv `
+  --labels "A: U-Net + BCE" "B: U-Net + BCE + Dice" `
+  --output_path results\curve_ablation_ab.png `
+  --loss_ylabel "Loss"
 ```
+
+`--csv_paths` 与 `--labels` 的数量必须一致。
+
+## 8. 结果文件定位
+
+每个实验目录的 `test_metrics_*.txt` 是该模型在测试集上的原始结果。根目录 [result.md](result.md) 汇总了当前 `experiments/` 下全部 15 份测试指标，并提供消融、学习率、损失权重与批大小对比和初步结论。
